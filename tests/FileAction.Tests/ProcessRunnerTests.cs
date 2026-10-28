@@ -54,12 +54,13 @@ public class ProcessRunnerTests
         try
         {
             var powershell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
-            var script = "$p = Start-Process -FilePath ping.exe -ArgumentList '-n','31','127.0.0.1' -WindowStyle Hidden -PassThru; "
-                + "[IO.File]::WriteAllText('" + marker.Replace("'", "''") + "', [string]$p.Id); Start-Sleep -Seconds 30";
+            var script = "$p = Start-Process -FilePath ping.exe -ArgumentList '-n','91','127.0.0.1' -WindowStyle Hidden -PassThru; "
+                + "[IO.File]::WriteAllText('" + marker.Replace("'", "''") + "', [string]$p.Id); Start-Sleep -Seconds 90";
             var running = ProcessRunner.RunAsync(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], cancel.Token,
-                timeout: TimeSpan.FromSeconds(15));
+                timeout: TimeSpan.FromSeconds(75));
+            // PowerShell can take many seconds to start on a busy CI runner running tests in parallel.
             var ready = Stopwatch.StartNew();
-            while (!File.Exists(marker) && ready.Elapsed < TimeSpan.FromSeconds(8) && !running.IsCompleted)
+            while (!File.Exists(marker) && ready.Elapsed < TimeSpan.FromSeconds(45) && !running.IsCompleted)
                 await Task.Delay(50);
             Assert.True(File.Exists(marker), "The child process must start before cancellation is tested.");
             descendant = Process.GetProcessById(int.Parse(await File.ReadAllTextAsync(marker)));
