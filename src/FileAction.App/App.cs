@@ -20,7 +20,7 @@ public static class Program
         if(args.Length>0&&args[0]=="--glass-preview")return GlassPreview.Run(args.Length>1?args[1]:"glass-preview",args.Length>2?args[2]:null,args.Length>3?args[3]:null);
         if(args.Length>0&&args[0]=="--setup-tools")return GlassPreview.RunToolSetup();
         if(args.Length>0&&args[0]=="--link-preview")return GlassPreview.RunLinks(args.Length>1?args[1]:"link-preview",args.Length>2?args[2]:null);
-        if(args.Length>0&&args[0]=="--toast-preview")return GlassPreview.RunToasts(args.Length>1?args[1]:"toast-preview",args.Length>2?args[2]:null);
+        if(args.Length>0&&args[0]=="--toast-preview")return GlassPreview.RunToasts(args.Length>1?args[1]:"toast-preview",args.Length>2?args[2]:null,args.Length>3?args[3]:null);
         if(args.Length>0&&args[0]=="--verify-peel")return PeelVerification.Run(args.Length>1?args[1]:"peel-verification");
         if (args.Length > 0 && args[0] == "--self-test-workers")
             return SelfTest.RunWorkerTests(args.Length >= 2 ? args[1] : "worker-test");

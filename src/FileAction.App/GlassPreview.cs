@@ -53,11 +53,18 @@ internal static class GlassPreview
         return app.Run(host);
     }
     /// <summary>Plays a scripted set of notifications: a message, a job that finishes and one that fails.</summary>
-    public static int RunToasts(string folder,string? theme=null)
+    /// <param name="scene">"dark" or "bright" puts a synthetic backdrop behind the corner, for clean screenshots.</param>
+    public static int RunToasts(string folder,string? theme=null,string? scene=null)
     {
         Directory.CreateDirectory(folder);
         var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
         Theme.Override=theme switch{"dark"=>true,"light"=>false,_=>null};Theme.Refresh();Loc.Current=Language.English;
+        if(scene is "dark" or "bright")
+        {
+            var work=SystemParameters.WorkArea;
+            app.Startup+=(_,_)=>new Window{WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,ShowActivated=false,
+                Left=work.Right-620,Top=work.Bottom-760,Width=620,Height=760,Background=Pattern(scene=="bright")}.Show();
+        }
         var source=Path.Combine(folder,"Viagem praia.mov");var output=Path.Combine(folder,"Viagem praia.mp4");var image=Path.Combine(folder,"capa-reels.png");
         foreach(var file in new[]{source,output,image})if(!File.Exists(file))File.WriteAllBytes(file,[0]);
         void After(int ms,Action action){var timer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(ms)};timer.Tick+=(_,_)=>{timer.Stop();action();};timer.Start();}

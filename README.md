@@ -8,6 +8,12 @@ Fast, local file conversion for Windows. Drag a file, tap **Shift**, **Ctrl** or
 - **Notifications** – one glass card follows each job from progress to result.
 - **Local** – files never leave your PC. Peel only goes online to download a video you chose, fetch its helper engines, and check for updates.
 
+![The Peel wheel in its smoked and white glass, over dark and bright backgrounds](docs/images/wheel.png)
+
+| Notifications | Workspace |
+|---|---|
+| ![Peel notification cards showing two conversions in progress](docs/images/notifications.png) | ![The Peel workspace with conversion targets for a PNG file](docs/images/workspace.png) |
+
 ## Install
 
 Download `Peel-Setup-x.y.z.exe` from [Releases](https://github.com/GuardaChuva22/peel/releases) and run it (Windows 10/11 x64, no admin rights needed).
