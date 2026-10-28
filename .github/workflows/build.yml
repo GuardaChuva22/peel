@@ -1,0 +1,105 @@
+name: Build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a release with this version (e.g. 1.0.0); leave empty for a normal build'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  core-tests-linux:
+    name: Core tests (Linux, with ffmpeg/pandoc/LibreOffice)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install converters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg pandoc libreoffice-writer libreoffice-calc libreoffice-impress
+      - name: Test
+        run: dotnet test tests/FileAction.Tests -c Release --logger "console;verbosity=normal"
+
+  windows:
+    name: Windows build, tests and installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Version
+        shell: pwsh
+        env:
+          RELEASE: ${{ github.event.inputs.release }}
+        run: |
+          if ($env:RELEASE -or $env:GITHUB_REF_TYPE -eq 'tag') { "PUBLISH=true" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          $v = if ($env:RELEASE) { $env:RELEASE.TrimStart('v') }
+               elseif ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') }
+               else { "0.0.$($env:GITHUB_RUN_NUMBER)" }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Download ffmpeg and pandoc (tests only; Peel fetches its own on first start)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/fetch-tools.ps1 -Destination tools
+
+      - name: Test (Windows)
+        shell: pwsh
+        run: |
+          $env:PATH = "$PWD\tools;$env:PATH"
+          dotnet test tests/FileAction.Tests -c Release --logger "console;verbosity=normal"
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          dotnet publish src/FileAction.App/FileAction.App.csproj -c Release -r win-x64 --self-contained -p:Version=$env:VERSION -o publish
+          Copy-Item LICENSE, THIRD-PARTY-NOTICES.md publish/
+
+      - name: Installer and zip
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          & $iscc "/DAppVersion=$env:VERSION" installer/Peel.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          Compress-Archive -Path publish/* -DestinationPath "artifacts/Peel-$env:VERSION-win-x64.zip"
+          Get-ChildItem artifacts -File | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content artifacts/SHA256SUMS.txt
+          Get-ChildItem artifacts | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Peel-${{ env.VERSION }}-windows
+          path: artifacts/*
+
+      - name: Release
+        if: env.PUBLISH == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Peel ${{ env.VERSION }}
+          generate_release_notes: true
+          body: |
+            **Install:** download `Peel-Setup-${{ env.VERSION }}.exe` below and run it. No admin rights needed.
+
+            Windows may show "Windows protected your PC" because the installer isn't code-signed yet: choose **More info → Run anyway**.
+
+            On first start Peel downloads FFmpeg, Pandoc and yt-dlp from their official releases (about 250 MB) and verifies them. Installed copies update themselves.
+          files: artifacts/*
