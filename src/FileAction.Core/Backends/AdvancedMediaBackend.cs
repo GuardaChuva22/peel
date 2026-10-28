@@ -155,8 +155,8 @@ public static class AdvancedMediaBackend
     private static async Task<Probe> ProbeAsync(string input, OperationContext ctx)
     {
         var ffmpeg = ctx.Tools.Require(ExternalTool.Ffmpeg);
-        var executable = Path.Combine(Path.GetDirectoryName(ffmpeg)!, "ffprobe.exe");
-        if (!File.Exists(executable)) throw new ConversionException("The media inspector ffprobe.exe is missing from the tools folder.");
+        var executable = Path.Combine(Path.GetDirectoryName(ffmpeg)!, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+        if (!File.Exists(executable)) throw new ConversionException("The media inspector ffprobe is missing next to ffmpeg.");
         var json = await ProcessRunner.RunAsync(executable, ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", input], ctx.CancellationToken);
         using var doc = JsonDocument.Parse(json);
         var streams = doc.RootElement.GetProperty("streams").EnumerateArray().ToArray();

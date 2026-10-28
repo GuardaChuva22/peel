@@ -24,8 +24,8 @@ public sealed class AdvancedSemanticTests : IClassFixture<AdvancedSemanticTests.
         public Fixtures()
         {
             Ffmpeg = Tools.Require(ExternalTool.Ffmpeg);
-            Ffprobe = Path.Combine(Path.GetDirectoryName(Ffmpeg)!, "ffprobe.exe");
-            Assert.True(File.Exists(Ffprobe), "Semantic tests require ffprobe.exe beside ffmpeg.exe.");
+            Ffprobe = Path.Combine(Path.GetDirectoryName(Ffmpeg)!, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+            Assert.True(File.Exists(Ffprobe), "Semantic tests require ffprobe beside ffmpeg.");
             Run("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2", "-ac", "2", "-c:a", "pcm_s16le", Audio);
             Run("-f", "lavfi", "-i", "color=c=blue:size=160x96:rate=30:duration=2", "-i", Audio,
                 "-c:v", "libx264", "-threads", "2", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", Video);

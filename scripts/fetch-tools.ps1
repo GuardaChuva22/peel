@@ -32,9 +32,11 @@ function Get-Zip([string]$Url, [string]$Name) {
 try {
     # FFmpeg: GPL build (x264, libvpx, opus, lame, vorbis) from https://github.com/BtbN/FFmpeg-Builds
     $ffmpegDir = Get-Zip 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' 'ffmpeg'
-    $ffmpeg = Get-ChildItem $ffmpegDir -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
-    if (-not $ffmpeg) { throw 'ffmpeg.exe not found in the archive' }
-    Copy-Item $ffmpeg.FullName $Destination -Force
+    foreach ($name in 'ffmpeg.exe', 'ffprobe.exe') {
+        $exe = Get-ChildItem $ffmpegDir -Recurse -Filter $name | Select-Object -First 1
+        if (-not $exe) { throw "$name not found in the archive" }
+        Copy-Item $exe.FullName $Destination -Force
+    }
 
     # Pandoc: latest release from https://github.com/jgm/pandoc
     $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/jgm/pandoc/releases/latest' -Headers $headers

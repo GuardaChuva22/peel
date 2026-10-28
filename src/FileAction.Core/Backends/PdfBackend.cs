@@ -151,7 +151,7 @@ public static class PdfBackend
                 sheets.Add(new SpreadsheetBackend.Sheet($"Page {page.Number}", ExtractRows(page.GetWords().ToList())));
             }
             if (!sheets.Any(s => s.Rows.Count > 0))
-                throw new ConversionException("The PDF contains no text (probably a scan). Run OCR first, for example PowerToys Text Extractor.");
+                throw new ConversionException(T("PDF neobsahuje žádný text (nejspíš je to sken). Nejprve použijte OCR (např. Text Extractor v PowerToys).", "The PDF contains no text (probably a scan). Run OCR first, for example PowerToys Text Extractor."));
             SpreadsheetBackend.WriteXlsx(sheets, tmp);
         }, ctx.CancellationToken));
 
