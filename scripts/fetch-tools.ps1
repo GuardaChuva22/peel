@@ -22,16 +22,31 @@ if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN
 
 function Get-Zip([string]$Url, [string]$Name) {
     $zip = Join-Path $temp "$Name.zip"
-    Write-Host "Downloading $Url"
-    Invoke-WebRequest -Uri $Url -OutFile $zip -Headers $headers
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            Write-Host "Downloading $Url"
+            Invoke-WebRequest -Uri $Url -OutFile $zip -Headers $headers
+            break
+        }
+        catch {
+            if ($attempt -ge 4) { throw }
+            Write-Host "Attempt $attempt failed: $($_.Exception.Message). Retrying..."
+            Start-Sleep -Seconds (15 * $attempt)
+        }
+    }
     $dir = Join-Path $temp $Name
     Expand-Archive -Path $zip -DestinationPath $dir
     return $dir
 }
 
 try {
-    # FFmpeg: GPL build (x264, libvpx, opus, lame, vorbis) from https://github.com/BtbN/FFmpeg-Builds
-    $ffmpegDir = Get-Zip 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip' 'ffmpeg'
+    # FFmpeg: newest stable GPL build (x264, libvpx, opus, lame, vorbis) from https://github.com/BtbN/FFmpeg-Builds.
+    # The nightly "master" file is briefly missing while the daily release is rebuilt.
+    $builds = Invoke-RestMethod -Uri 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest' -Headers $headers
+    $build = $builds.assets | Where-Object { $_.name -match '^ffmpeg-n(\d+\.\d+)-latest-win64-gpl-[\d.]+\.zip$' } |
+        Sort-Object { [version]($_.name -replace '^ffmpeg-n(\d+\.\d+)-.*$', '$1') } -Descending | Select-Object -First 1
+    if (-not $build) { throw 'No stable Windows FFmpeg build in the BtbN release' }
+    $ffmpegDir = Get-Zip $build.browser_download_url 'ffmpeg'
     foreach ($name in 'ffmpeg.exe', 'ffprobe.exe') {
         $exe = Get-ChildItem $ffmpegDir -Recurse -Filter $name | Select-Object -First 1
         if (-not $exe) { throw "$name not found in the archive" }
