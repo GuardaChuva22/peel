@@ -30,6 +30,18 @@ internal static class VideoOffers
         VideoInfo? info = null;
         var details = new CancellationTokenSource();
         card.Dismissed += _ => details.Cancel();
+        Task<bool>? refreshing = null;
+
+        // A site that rejects yt-dlp usually changed; one refresh of Peel's own copy is shared by
+        // the details lookup and the download, and each retries once afterwards.
+        async Task<bool> Refresh()
+        {
+            refreshing ??= ToolSetup.RefreshYtDlpAsync();
+            var ok = await refreshing;
+            if (VideoDownloader.Locate() is { } updated)
+                ytDlp = updated;
+            return ok;
+        }
 
         async void Start(VideoFormat format)
         {
@@ -37,19 +49,31 @@ internal static class VideoOffers
             var title = info?.Title ?? link.Site;
             using var cancellation = new CancellationTokenSource();
             card.BeginJob(title, T($"Stahuji {label} · {link.Site}", $"Downloading {label} · {link.Site}"), () => cancellation.Cancel());
-            try
+            for (var attempt = 0; ; attempt++)
             {
-                var file = await VideoDownloader.DownloadAsync(ytDlp, tools.Ffmpeg, link, format, new Progress<double>(card.Report), cancellation.Token);
-                card.Complete([file], null);
-                card.SetDetails(title, T($"{label} uloženo do Stažených souborů", $"{label} saved to Downloads"));
-            }
-            catch (OperationCanceledException)
-            {
-                card.Cancelled();
-            }
-            catch (Exception ex) when (ex is ConversionException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
-            {
-                card.Fail(ex.Message);
+                try
+                {
+                    var file = await VideoDownloader.DownloadAsync(ytDlp, tools.Ffmpeg, link, format, new Progress<double>(card.Report), cancellation.Token);
+                    card.Complete([file], null);
+                    card.SetDetails(title, T($"{label} uloženo do Stažených souborů", $"{label} saved to Downloads"));
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    card.Cancelled();
+                    return;
+                }
+                catch (SiteChangedException) when (attempt == 0)
+                {
+                    card.SetDetails(title, T("Aktualizuji stahovač a zkouším to znovu…", "Updating the downloader and trying again…"));
+                    await Refresh();
+                    card.SetDetails(title, T($"Stahuji {label} · {link.Site}", $"Downloading {label} · {link.Site}"));
+                }
+                catch (Exception ex) when (ex is SiteChangedException or ConversionException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
+                {
+                    card.Fail(ex.Message);
+                    return;
+                }
             }
         }
 
@@ -61,8 +85,20 @@ internal static class VideoOffers
             try
             {
                 info = await VideoDownloader.ProbeAsync(ytDlp, link, details.Token);
-                if (info is null || card.Leaving)
+                if (info is null && !card.Leaving)
+                {
+                    if (!card.IsWorking) card.SetDetails(link.Site, T("Aktualizuji stahovač…", "Updating the downloader…"));
+                    if (await Refresh())
+                        info = await VideoDownloader.ProbeAsync(ytDlp, link, details.Token);
+                }
+                if (card.Leaving)
                     return;
+                if (info is null)
+                {
+                    // MP4 / MP3 stay available: the download reports its own, specific error.
+                    if (!card.IsWorking) card.SetDetails(link.Site, T("Podrobnosti nejsou k dispozici · MP4 nebo MP3 můžete zkusit i tak", "Details unavailable · you can still try MP4 or MP3"));
+                    return;
+                }
                 var parts = new List<string> { link.Site };
                 if (!string.IsNullOrWhiteSpace(info.Uploader)) parts.Add(info.Uploader!);
                 if (info.Duration is double seconds && seconds > 0) parts.Add(TimeSpan.FromSeconds(Math.Round(seconds)).ToString(seconds >= 3600 ? @"h\:mm\:ss" : @"m\:ss"));
@@ -78,6 +114,9 @@ internal static class VideoOffers
 }
 
 internal sealed record VideoInfo(string Title, string? Uploader, double? Duration, string? Thumbnail);
+
+/// <summary>The site rejected yt-dlp in a way a newer yt-dlp usually fixes.</summary>
+internal sealed class SiteChangedException(string message) : Exception(message);
 
 /// <summary>
 /// Downloads a video page with yt-dlp into Downloads. MP4 prefers H.264 + AAC up to 1080p so
@@ -204,7 +243,7 @@ internal static class VideoDownloader
             }, cancellation);
             cancellation.ThrowIfCancellationRequested();
             if (exit != 0)
-                throw new ConversionException(Friendly(errors, link));
+                throw SiteChanged(errors) ? new SiteChangedException(Friendly(errors, link)) : new ConversionException(Friendly(errors, link));
             if (file is null || !File.Exists(file))
                 throw new ConversionException(T("Stahování skončilo, ale soubor se nenašel.", "The download finished, but the file wasn't found."));
             progress.Report(1);
@@ -233,6 +272,8 @@ internal static class VideoDownloader
     {
         var line = errors.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("ERROR:", StringComparison.Ordinal)) ?? errors.Trim();
         var lower = line.ToLowerInvariant();
+        if (lower.Contains("ip address is blocked") || lower.Contains("not available in your country") || lower.Contains("geo"))
+            return $"{link.Site} doesn't make this post available in your region.";
         if (lower.Contains("login") || lower.Contains("cookies") || lower.Contains("rate-limit") || lower.Contains("sign in"))
             return $"{link.Site} asked for a login for this post (private, age-restricted or rate-limited). Try again later.";
         if (lower.Contains("unsupported url"))
@@ -241,9 +282,22 @@ internal static class VideoDownloader
             return "This video is unavailable or was removed.";
         if (lower.Contains("no video could be found") || lower.Contains("no video formats"))
             return "There's no video in this post.";
-        // "ERROR: [youtube] abc123: message" → "message"
+        if (SiteChanged(errors))
+            return $"{link.Site} changed how its pages work and the downloader doesn't support it yet. Updates usually arrive within a day or two; Peel checks every day, so try again later.";
+        // "ERROR: [youtube] abc123: message" → "message", without yt-dlp's "please report this issue" advice.
         var message = System.Text.RegularExpressions.Regex.Replace(line, @"^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]+:\s*)?", "");
+        var advice = message.IndexOf("; please report this issue", StringComparison.OrdinalIgnoreCase);
+        if (advice > 0)
+            message = message[..advice] + ".";
         return message.Length == 0 ? "The download failed." : message.Length > 180 ? message[..180] + "…" : message;
+    }
+
+    /// <summary>The signs of a site that changed under yt-dlp, which a newer yt-dlp usually handles.</summary>
+    private static bool SiteChanged(string errors)
+    {
+        var lower = errors.ToLowerInvariant();
+        return lower.Contains("unexpected response") || lower.Contains("unable to extract") || lower.Contains("please report this issue")
+            || lower.Contains("extractor") || lower.Contains("unable to download webpage") || lower.Contains("requested format is not available");
     }
 
     private static async Task<(int Exit, string Errors)> RunAsync(string exe, IEnumerable<string> args, Action<string> onLine, CancellationToken cancellation)

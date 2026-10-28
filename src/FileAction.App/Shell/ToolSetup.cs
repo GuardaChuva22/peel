@@ -42,7 +42,9 @@ internal static partial class ToolSetup
                 missing.Add(Ffmpeg);
             if (tools.Pandoc is null)
                 missing.Add(Pandoc);
-            if (VideoDownloader.Locate() is null)
+            // Peel keeps its own yt-dlp even when another copy is on PATH: only the standalone
+            // build in tools\ can update itself, and video sites change too often for a stale one.
+            if (!File.Exists(Path.Combine(Folder, "yt-dlp.exe")))
                 missing.Add(YtDlp);
             if (missing.Count == 0)
             {
@@ -173,14 +175,39 @@ internal static partial class ToolSetup
         }
     }
 
+    /// <summary>
+    /// Makes sure Peel's own yt-dlp exists and is current, right now (after a site rejected a download).
+    /// Returns whether it is in place.
+    /// </summary>
+    public static async Task<bool> RefreshYtDlpAsync()
+    {
+        var exe = Path.Combine(Folder, "yt-dlp.exe");
+        if (!File.Exists(exe))
+        {
+            try
+            {
+                Directory.CreateDirectory(Folder);
+                var (_, url, _, sha) = await ResolveAsync(YtDlp, CancellationToken.None);
+                await InstallOneAsync(YtDlp, url, sha, _ => { }, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or InvalidDataException or JsonException or InvalidOperationException or KeyNotFoundException or TaskCanceledException)
+            {
+                App.Log(ex);
+            }
+            return File.Exists(exe);
+        }
+        await UpdateYtDlpAsync(force: true);
+        return true;
+    }
+
     /// <summary>yt-dlp in tools\ is the standalone build, which can verify and replace itself.</summary>
-    private static async Task UpdateYtDlpAsync()
+    private static async Task UpdateYtDlpAsync(bool force = false)
     {
         var exe = Path.Combine(Folder, "yt-dlp.exe");
         var stamp = Path.Combine(AppSettings.Folder, "yt-dlp-checked.txt");
         try
         {
-            if (!File.Exists(exe) || (File.Exists(stamp) && DateTime.Now - File.GetLastWriteTime(stamp) < TimeSpan.FromDays(1)))
+            if (!File.Exists(exe) || (!force && File.Exists(stamp) && DateTime.Now - File.GetLastWriteTime(stamp) < TimeSpan.FromDays(1)))
                 return;
             Directory.CreateDirectory(AppSettings.Folder);
             await File.WriteAllTextAsync(stamp, DateTime.Now.ToString("s"));

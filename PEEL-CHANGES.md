@@ -40,3 +40,9 @@ The workspace uses compact full-width action rows, a quieter sidebar, smaller ac
 - The drag wheel no longer opens for text selection, rubber bands or games; only for real drags of content Peel can read.
 - Helper engines (FFmpeg, Pandoc, yt-dlp) are downloaded from their official releases on first start and checked against published checksums; yt-dlp keeps itself current.
 - In-app updates from Peel's GitHub releases.
+
+## 0.4.1
+
+- Peel keeps its own yt-dlp in tools\ even when another copy is on PATH, so it can always update itself; a stale copy broke TikTok downloads.
+- When a site rejects a download in a way a newer yt-dlp fixes, Peel updates yt-dlp and retries once on its own. A failed details lookup does the same, and the card no longer stays on "getting details".
+- Clearer messages for region-blocked posts and for sites that changed, without yt-dlp's bug-report boilerplate.
